@@ -1,26 +1,789 @@
 @import "tailwindcss";
 
+@source not "../.claude";
+
+/* ═══════════════════════════════════════════════════════════════
+   Atelier Botanique — Luxury Watercolor Theme
+   ═══════════════════════════════════════════════════════════════ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf8f4;
+  --foreground: #2a2520;
+  --sage: #6bb5a0;
+  --sage-dark: #4a9e8a;
+  --sage-light: #8acdb8;
+  --gold: #c5a55a;
+  --gold-light: #d4bc7e;
+  --gold-dark: #a88b3e;
+  --blush: #d4a0a0;
+  --lavender: #9b8ea8;
+  --terracotta: #c17f59;
+  --cream: #f5f1ea;
+  --cream-dark: #ede7db;
+  --linen: #faf8f4;
+  --warm-shadow: rgba(42, 37, 32, 0.06);
+  --warm-shadow-lg: rgba(42, 37, 32, 0.1);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-sage: var(--sage);
+  --color-gold: var(--gold);
+  --color-blush: var(--blush);
+  --color-lavender: var(--lavender);
+  --color-terracotta: var(--terracotta);
+  --color-cream: var(--cream);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* ===== Body: warm cream paper ===== */
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  font-weight: 600;
+  min-height: 100vh;
+}
+
+/* Watercolor wash — layered soft radial gradients */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    /* Top-left: soft sage watercolor wash */
+    radial-gradient(ellipse 55% 45% at 8% 5%, rgba(107, 181, 160, 0.08) 0%, transparent 70%),
+    /* Top-right: blush/rose wash */
+    radial-gradient(ellipse 50% 40% at 92% 8%, rgba(212, 160, 160, 0.07) 0%, transparent 65%),
+    /* Center-left: very faint lavender */
+    radial-gradient(ellipse 35% 50% at 3% 55%, rgba(155, 142, 168, 0.05) 0%, transparent 60%),
+    /* Bottom-right: warm terracotta glow */
+    radial-gradient(ellipse 45% 35% at 90% 88%, rgba(193, 127, 89, 0.06) 0%, transparent 60%),
+    /* Bottom-left: sage with gold tint */
+    radial-gradient(ellipse 40% 30% at 12% 92%, rgba(107, 181, 160, 0.05) 0%, transparent 55%),
+    /* Center: very subtle gold warmth */
+    radial-gradient(ellipse 60% 40% at 50% 50%, rgba(197, 165, 90, 0.03) 0%, transparent 70%);
+}
+
+/* Subtle linen paper texture */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.18;
+  background-image:
+    repeating-conic-gradient(rgba(42, 37, 32, 0.012) 0% 25%, transparent 0% 50%);
+  background-size: 48px 48px;
+}
+
+/* ===== Gold accent line at top of page ===== */
+.gold-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 60;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 5%,
+    rgba(197, 165, 90, 0.2) 15%,
+    rgba(197, 165, 90, 0.5) 35%,
+    rgba(212, 188, 126, 0.6) 50%,
+    rgba(197, 165, 90, 0.5) 65%,
+    rgba(197, 165, 90, 0.2) 85%,
+    transparent 95%
+  );
+}
+
+/* ===== Watercolor wash — top-left corner ===== */
+.watercolor-tl {
+  position: fixed;
+  top: -60px;
+  left: -60px;
+  width: 320px;
+  height: 280px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.45;
+  border-radius: 40% 60% 55% 45% / 50% 45% 55% 50%;
+  background:
+    radial-gradient(ellipse 70% 60% at 40% 40%, rgba(107, 181, 160, 0.25) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 50% at 60% 55%, rgba(138, 205, 184, 0.15) 0%, transparent 65%),
+    radial-gradient(ellipse 40% 35% at 30% 65%, rgba(155, 142, 168, 0.1) 0%, transparent 60%);
+  filter: blur(25px);
+}
+
+/* ===== Watercolor wash — top-right corner ===== */
+.watercolor-tr {
+  position: fixed;
+  top: -40px;
+  right: -50px;
+  width: 280px;
+  height: 240px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.4;
+  border-radius: 55% 45% 50% 50% / 45% 55% 45% 55%;
+  background:
+    radial-gradient(ellipse 65% 55% at 55% 45%, rgba(212, 160, 160, 0.22) 0%, transparent 70%),
+    radial-gradient(ellipse 45% 50% at 40% 60%, rgba(197, 165, 90, 0.12) 0%, transparent 60%);
+  filter: blur(30px);
+}
+
+/* ===== Watercolor wash — bottom-left corner ===== */
+.watercolor-bl {
+  position: fixed;
+  bottom: -50px;
+  left: -40px;
+  width: 260px;
+  height: 220px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.35;
+  border-radius: 50% 50% 40% 60% / 55% 45% 55% 45%;
+  background:
+    radial-gradient(ellipse 60% 55% at 45% 50%, rgba(155, 142, 168, 0.2) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 40% at 60% 35%, rgba(107, 181, 160, 0.12) 0%, transparent 60%);
+  filter: blur(28px);
+}
+
+/* ===== Watercolor wash — bottom-right corner ===== */
+.watercolor-br {
+  position: fixed;
+  bottom: -45px;
+  right: -55px;
+  width: 300px;
+  height: 250px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.38;
+  border-radius: 45% 55% 50% 50% / 50% 50% 50% 50%;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 50%, rgba(193, 127, 89, 0.18) 0%, transparent 65%),
+    radial-gradient(ellipse 45% 45% at 35% 40%, rgba(197, 165, 90, 0.1) 0%, transparent 60%);
+  filter: blur(26px);
+}
+
+/* ===== Botanical silhouette — top left (eucalyptus branch) ===== */
+.botanical-tl {
+  position: fixed;
+  top: -15px;
+  left: -20px;
+  width: 160px;
+  height: 140px;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.38;
+}
+
+/* Main eucalyptus leaf cluster */
+.botanical-tl::before {
+  content: "";
+  position: absolute;
+  width: 50px;
+  height: 32px;
+  top: 28px;
+  left: 25px;
+  background: linear-gradient(135deg, rgba(107, 181, 160, 0.6) 0%, rgba(138, 205, 184, 0.35) 60%, rgba(197, 165, 90, 0.15) 100%);
+  border-radius: 50%;
+  transform: rotate(-35deg);
+  box-shadow:
+    22px -8px 0 -2px rgba(74, 158, 138, 0.45),
+    42px 5px 0 -4px rgba(107, 181, 160, 0.4),
+    12px 20px 0 -1px rgba(138, 205, 184, 0.35),
+    35px 22px 0 -3px rgba(74, 158, 138, 0.3),
+    55px 18px 0 -5px rgba(107, 181, 160, 0.25);
+}
+
+/* Stem/branch line */
+.botanical-tl::after {
+  content: "";
+  position: absolute;
+  width: 90px;
+  height: 2px;
+  top: 50px;
+  left: 15px;
+  background: linear-gradient(to right, rgba(74, 158, 138, 0.4), rgba(107, 181, 160, 0.2), transparent);
+  transform: rotate(-25deg);
+  transform-origin: left center;
+}
+
+/* ===== Botanical silhouette — top right (delicate branch) ===== */
+.botanical-tr {
+  position: fixed;
+  top: -10px;
+  right: -15px;
+  width: 140px;
+  height: 120px;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.32;
+}
+
+.botanical-tr::before {
+  content: "";
+  position: absolute;
+  width: 40px;
+  height: 26px;
+  top: 25px;
+  right: 20px;
+  background: linear-gradient(160deg, rgba(212, 160, 160, 0.45) 0%, rgba(155, 142, 168, 0.25) 100%);
+  border-radius: 50%;
+  transform: rotate(30deg);
+  box-shadow:
+    -18px 10px 0 -2px rgba(212, 160, 160, 0.35),
+    -35px 4px 0 -3px rgba(155, 142, 168, 0.3),
+    -10px -12px 0 -1px rgba(197, 165, 90, 0.2),
+    -28px 20px 0 -4px rgba(212, 160, 160, 0.25);
+}
+
+.botanical-tr::after {
+  content: "";
+  position: absolute;
+  width: 75px;
+  height: 1.5px;
+  top: 42px;
+  right: 15px;
+  background: linear-gradient(to left, rgba(155, 142, 168, 0.35), rgba(212, 160, 160, 0.2), transparent);
+  transform: rotate(20deg);
+  transform-origin: right center;
+}
+
+/* ===== Botanical silhouette — bottom left (sage leaves) ===== */
+.botanical-bl {
+  position: fixed;
+  bottom: -12px;
+  left: -18px;
+  width: 150px;
+  height: 130px;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.34;
+}
+
+.botanical-bl::before {
+  content: "";
+  position: absolute;
+  width: 45px;
+  height: 28px;
+  bottom: 25px;
+  left: 20px;
+  background: linear-gradient(145deg, rgba(107, 181, 160, 0.5) 0%, rgba(74, 158, 138, 0.3) 50%, rgba(193, 127, 89, 0.15) 100%);
+  border-radius: 50%;
+  transform: rotate(150deg);
+  box-shadow:
+    20px 12px 0 -2px rgba(107, 181, 160, 0.4),
+    38px -2px 0 -4px rgba(138, 205, 184, 0.3),
+    8px -15px 0 -1px rgba(74, 158, 138, 0.35),
+    30px -18px 0 -3px rgba(107, 181, 160, 0.25);
+}
+
+.botanical-bl::after {
+  content: "";
+  position: absolute;
+  width: 80px;
+  height: 1.5px;
+  bottom: 42px;
+  left: 12px;
+  background: linear-gradient(to right, rgba(107, 181, 160, 0.35), rgba(74, 158, 138, 0.15), transparent);
+  transform: rotate(155deg);
+  transform-origin: left center;
+}
+
+/* ===== Botanical silhouette — bottom right (warm terracotta branch) ===== */
+.botanical-br {
+  position: fixed;
+  bottom: -15px;
+  right: -20px;
+  width: 160px;
+  height: 130px;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.3;
+}
+
+.botanical-br::before {
+  content: "";
+  position: absolute;
+  width: 42px;
+  height: 25px;
+  bottom: 28px;
+  right: 22px;
+  background: linear-gradient(170deg, rgba(193, 127, 89, 0.4) 0%, rgba(197, 165, 90, 0.25) 60%, rgba(212, 160, 160, 0.15) 100%);
+  border-radius: 50%;
+  transform: rotate(-150deg);
+  box-shadow:
+    -20px 10px 0 -2px rgba(193, 127, 89, 0.35),
+    -38px 0px 0 -4px rgba(197, 165, 90, 0.25),
+    -12px -14px 0 -2px rgba(193, 127, 89, 0.28);
+}
+
+.botanical-br::after {
+  content: "";
+  position: absolute;
+  width: 70px;
+  height: 1.5px;
+  bottom: 44px;
+  right: 18px;
+  background: linear-gradient(to left, rgba(193, 127, 89, 0.3), rgba(197, 165, 90, 0.15), transparent);
+  transform: rotate(-155deg);
+  transform-origin: right center;
+}
+
+/* ===== Scattered watercolor dots (ambient) ===== */
+.watercolor-dots {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0.3;
+}
+
+.watercolor-dots::before {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(197, 165, 90, 0.4);
+  top: 180px;
+  left: 22px;
+  filter: blur(1px);
+  box-shadow:
+    calc(100vw - 60px) 30px 0 rgba(212, 160, 160, 0.35),
+    15px 320px 0 rgba(155, 142, 168, 0.3),
+    calc(100vw - 48px) 280px 0 rgba(107, 181, 160, 0.3),
+    20px 540px 0 rgba(193, 127, 89, 0.3),
+    calc(100vw - 55px) 480px 0 rgba(197, 165, 90, 0.35),
+    12px 720px 0 rgba(212, 160, 160, 0.25),
+    calc(100vw - 42px) 680px 0 rgba(155, 142, 168, 0.3);
+}
+
+.watercolor-dots::after {
+  content: "";
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(107, 181, 160, 0.3);
+  top: 260px;
+  left: 18px;
+  filter: blur(0.5px);
+  box-shadow:
+    calc(100vw - 38px) -70px 0 rgba(197, 165, 90, 0.3),
+    10px 200px 0 rgba(212, 160, 160, 0.25),
+    calc(100vw - 45px) 150px 0 rgba(193, 127, 89, 0.25),
+    8px 420px 0 rgba(155, 142, 168, 0.25),
+    calc(100vw - 35px) 350px 0 rgba(107, 181, 160, 0.25);
+}
+
+/* ===== Sidebar toggle button ===== */
+.sidebar-toggle {
+  position: fixed;
+  top: 12px;
+  left: 14px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid rgba(197, 165, 90, 0.3);
+  border-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(250, 248, 244, 0.96),
+    rgba(245, 241, 234, 0.93)
+  );
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  box-shadow:
+    0 2px 8px rgba(42, 37, 32, 0.08),
+    0 0 0 0 rgba(197, 165, 90, 0);
+  transition: box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+  box-shadow:
+    0 3px 12px rgba(42, 37, 32, 0.12),
+    0 0 0 2px rgba(197, 165, 90, 0.1);
+  background: linear-gradient(
+    135deg,
+    rgba(250, 248, 244, 1),
+    rgba(245, 241, 234, 0.98)
+  );
+}
+
+.sidebar-toggle-bar {
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--sage-dark);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.sidebar-toggle-open .sidebar-toggle-bar:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.sidebar-toggle-open .sidebar-toggle-bar:nth-child(2) {
+  opacity: 0;
+}
+
+.sidebar-toggle-open .sidebar-toggle-bar:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+/* ===== Sidebar overlay ===== */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(42, 37, 32, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.sidebar-overlay-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ===== Sidebar panel ===== */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 240px;
+  z-index: 56;
+  background:
+    linear-gradient(
+      to right,
+      rgba(250, 248, 244, 0.98),
+      rgba(245, 241, 234, 0.96) 75%,
+      rgba(250, 248, 244, 0.98)
+    );
+  box-shadow: 2px 0 16px rgba(42, 37, 32, 0.08);
+  backdrop-filter: blur(10px);
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
+}
+
+.sidebar-open {
+  transform: translateX(0);
+}
+
+.sidebar-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 68px 16px 24px;
+}
+
+.sidebar-link {
+  display: block;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--foreground);
+  opacity: 0.55;
+  transition: all 0.2s ease;
+}
+
+.sidebar-link:hover {
+  opacity: 1;
+  color: var(--sage-dark);
+  background: rgba(107, 181, 160, 0.06);
+}
+
+.sidebar-link-active {
+  opacity: 1;
+  color: var(--gold-dark);
+  background: rgba(197, 165, 90, 0.08);
+  border-left: 3px solid var(--gold);
+  padding-left: 13px;
+}
+
+/* ===== Sidebar vine — decorative gold filigree on right edge ===== */
+.sidebar-vine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 32px;
+  pointer-events: none;
+  opacity: 0.4;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0px,
+      transparent 28px,
+      rgba(197, 165, 90, 0.22) 28px,
+      rgba(197, 165, 90, 0.22) 30px,
+      transparent 30px,
+      transparent 52px,
+      rgba(212, 188, 126, 0.14) 52px,
+      rgba(212, 188, 126, 0.14) 53px,
+      transparent 53px,
+      transparent 80px
+    ),
+    linear-gradient(to left, rgba(197, 165, 90, 0.08), transparent);
+}
+
+/* Small leaf accents along sidebar vine */
+.sidebar-vine::before {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(107, 181, 160, 0.3);
+  top: 30px;
+  right: 6px;
+  box-shadow:
+    -2px 82px 0 rgba(107, 181, 160, 0.25),
+    -4px 164px 0 rgba(138, 205, 184, 0.22),
+    -1px 248px 0 rgba(107, 181, 160, 0.28),
+    -3px 332px 0 rgba(138, 205, 184, 0.2),
+    -5px 418px 0 rgba(107, 181, 160, 0.25),
+    -2px 502px 0 rgba(138, 205, 184, 0.22),
+    -4px 588px 0 rgba(107, 181, 160, 0.2),
+    -1px 672px 0 rgba(138, 205, 184, 0.25);
+}
+
+/* Gold dot accents along sidebar vine */
+.sidebar-vine::after {
+  content: "";
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(197, 165, 90, 0.45);
+  top: 120px;
+  right: 10px;
+  box-shadow:
+    -1px 160px 0 rgba(197, 165, 90, 0.35),
+    1px 320px 0 rgba(212, 188, 126, 0.4),
+    -2px 480px 0 rgba(197, 165, 90, 0.35),
+    0px 640px 0 rgba(212, 188, 126, 0.3);
+}
+
+/* ===== Primary action button ===== */
+.btn-primary {
+  background: linear-gradient(135deg, var(--sage) 0%, var(--sage-dark) 100%);
+  color: var(--linen) !important;
+  border: 1px solid rgba(107, 181, 160, 0.3);
+  box-shadow:
+    0 2px 6px rgba(42, 37, 32, 0.1),
+    0 0 8px rgba(107, 181, 160, 0.06);
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  box-shadow:
+    0 3px 10px rgba(42, 37, 32, 0.14),
+    0 0 16px rgba(107, 181, 160, 0.1);
+  filter: brightness(1.05);
+}
+
+.btn-primary:disabled {
+  background: linear-gradient(135deg, rgba(107, 181, 160, 0.35), rgba(74, 158, 138, 0.25));
+  box-shadow: none;
+  opacity: 0.5;
+}
+
+/* ===== Selected toggle button (same feel as primary) ===== */
+.btn-selected {
+  background: linear-gradient(135deg, var(--sage) 0%, var(--sage-dark) 100%) !important;
+  color: var(--linen) !important;
+  border: 1px solid rgba(107, 181, 160, 0.3) !important;
+  box-shadow:
+    0 2px 6px rgba(42, 37, 32, 0.1),
+    0 0 8px rgba(107, 181, 160, 0.06);
+  font-weight: 700;
+}
+
+/* ===== Secondary button ===== */
+.btn-secondary {
+  border-color: rgba(197, 165, 90, 0.35);
+  color: var(--foreground);
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: rgba(197, 165, 90, 0.08);
+  border-color: rgba(197, 165, 90, 0.5);
+}
+
+/* ===== Danger button ===== */
+.btn-danger {
+  color: rgba(212, 160, 160, 0.7) !important;
+  transition: color 0.2s ease;
+}
+
+.btn-danger:hover {
+  color: rgba(180, 100, 100, 1) !important;
+}
+
+/* ===== Card ===== */
+.card {
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(250, 248, 244, 0.9) 100%
+  );
+  border-color: rgba(197, 165, 90, 0.15);
+  border-top: 2px solid rgba(197, 165, 90, 0.25);
+  box-shadow:
+    0 2px 8px rgba(42, 37, 32, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ===== Table header rows ===== */
+.thead-row {
+  background: linear-gradient(135deg, var(--sage) 0%, var(--sage-dark) 100%);
+  color: var(--linen);
+}
+
+/* ===== Table styling ===== */
+table {
+  border-collapse: collapse;
+}
+
+tbody tr {
+  transition: background 0.15s ease;
+}
+
+tbody tr:nth-child(even) {
+  background: rgba(245, 241, 234, 0.4);
+}
+
+tbody tr:hover {
+  background: rgba(107, 181, 160, 0.04);
+}
+
+/* ===== Form inputs and selects ===== */
+input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([class*="no-spin"]),
+select,
+textarea {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(197, 165, 90, 0.25) !important;
+  color: var(--foreground);
+  transition: all 0.2s ease;
+}
+
+input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([class*="no-spin"]):focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(107, 181, 160, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(107, 181, 160, 0.08);
+  outline: none;
+}
+
+/* Quantity inputs (.no-spin) */
+input.no-spin {
+  color: var(--foreground);
+}
+
+input.no-spin:focus,
+input.no-spin:hover {
+  background: rgba(107, 181, 160, 0.04) !important;
+}
+
+/* Date inputs */
+input[type="date"] {
+  color: var(--foreground);
+  color-scheme: light;
+}
+
+/* Select dropdown backgrounds */
+select option {
+  background: var(--linen);
+  color: var(--foreground);
+}
+
+/* ===== Headings: warm charcoal with slight sage ===== */
+h1, h2 {
+  color: rgba(42, 37, 32, 0.92);
+  letter-spacing: 0.01em;
+}
+
+/* ===== Scrollbar: elegant warm ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(245, 241, 234, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(197, 165, 90, 0.25);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(197, 165, 90, 0.45);
+}
+
+/* ===== Selection color: soft sage ===== */
+::selection {
+  background: rgba(107, 181, 160, 0.2);
+  color: var(--foreground);
+}
+
+/* ===== Spin button removal ===== */
+input[type="number"].no-spin::-webkit-outer-spin-button,
+input[type="number"].no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"].no-spin {
+  -moz-appearance: textfield;
+}
+
+/* ===== Footer gold separator ===== */
+.gold-separator {
+  position: relative;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 5%,
+    rgba(197, 165, 90, 0.12) 15%,
+    rgba(197, 165, 90, 0.25) 35%,
+    rgba(212, 188, 126, 0.3) 50%,
+    rgba(197, 165, 90, 0.25) 65%,
+    rgba(197, 165, 90, 0.12) 85%,
+    transparent 95%
+  );
+  margin-top: auto;
+}
+
+/* Small diamond accent at center of footer separator */
+.gold-separator::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 6px;
+  height: 6px;
+  background: rgba(197, 165, 90, 0.35);
+  border-radius: 1px;
 }

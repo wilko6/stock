@@ -1,0 +1,51 @@
+{
+    "alwaysThinkingEnabled": true,
+    "autoMemoryEnabled": false,
+    "permissions": {
+        "allow": [
+            "Bash(cat:*)",
+            "Bash(curl:*)",
+            "Bash(find:*)",
+            "Bash(git branch:*)",
+            "Bash(git diff:*)",
+            "Bash(git fetch:*)",
+            "Bash(git log:*)",
+            "Bash(git rev-parse:*)",
+            "Bash(git show:*)",
+            "Bash(git status:*)",
+            "Bash(grep:*)",
+            "Bash(ls:*)",
+            "Bash(mkdir:*)",
+            "Bash(wc:*)",
+            "Edit",
+            "Glob",
+            "Grep",
+            "MultiEdit",
+            "Read",
+            "Task",
+            "TodoWrite",
+            "WebFetch",
+            "WebSearch",
+            "Write"
+        ],
+        "ask": [
+            "Bash(cp:*)",
+            "Bash(git add:*)",
+            "Bash(git checkout:*)",
+            "Bash(git commit:*)",
+            "Bash(mv:*)",
+            "Bash(npm install:*)",
+            "Bash(npm run:*)",
+            "Bash(rm:*)"
+        ],
+        "deny": [
+            "Bash(git push:*)",
+            "Bash(git reset --hard:*)",
+            "Bash(git clean:*)"
+        ]
+    },
+    "statusLine": {
+        "type": "command",
+        "command": "bash .claude/statusline-command.sh"
+    }
+}
