@@ -3,38 +3,67 @@
 import { useState, useRef, type FormEvent, type DragEvent } from "react";
 import { useSessionState } from "@/lib/use-session-state";
 import { useSupabase } from "@/lib/use-supabase";
+import { useConfirm, useAlert } from "@/app/_components/dialog";
 import {
   fetchDrawingModels,
   upsertDrawingModel,
   deleteDrawingModel,
   fetchProducts,
+  uploadDrawingImage,
 } from "@/lib/db";
 import {
   type DrawingModel,
   type Product,
   createDrawingModel,
+  drawingModelImageSrc,
 } from "@/lib/types";
 import { compressImage } from "@/lib/image";
 
 interface ModelFormFields {
   name: string;
-  imageData: string;
+  pendingDataUrl: string;
+  existingImagePath: string | null;
 }
 
 const emptyForm: ModelFormFields = {
   name: "",
-  imageData: "",
+  pendingDataUrl: "",
+  existingImagePath: null,
 };
 
 function toModelFormFields(model: DrawingModel): ModelFormFields {
   return {
     name: model.name,
-    imageData: model.imageData,
+    pendingDataUrl: "",
+    existingImagePath: model.imagePath,
   };
 }
 
+function hasImage(form: ModelFormFields): boolean {
+  return form.pendingDataUrl !== "" || form.existingImagePath !== null;
+}
+
 function isFormValid(form: ModelFormFields): boolean {
-  return form.name.trim() !== "" && form.imageData !== "";
+  return form.name.trim() !== "" && hasImage(form);
+}
+
+function previewSrc(form: ModelFormFields): string {
+  if (form.pendingDataUrl !== "") {
+    return form.pendingDataUrl;
+  }
+
+  return drawingModelImageSrc({
+    id: "",
+    name: "",
+    imagePath: form.existingImagePath,
+    createdAt: "",
+  });
+}
+
+async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const response: Response = await fetch(dataUrl);
+
+  return response.blob();
 }
 
 export default function ModelsPage() {
@@ -42,7 +71,10 @@ export default function ModelsPage() {
   const [products] = useSupabase<Product[]>(fetchProducts, []);
   const [form, setForm] = useSessionState<ModelFormFields>("model-form", emptyForm);
   const [editingId, setEditingId] = useSessionState<string | null>("model-editingId", null);
+  const [submitting, setSubmitting] = useState<boolean>(false);
   const formRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
+  const alert = useAlert();
 
   function openEditForm(model: DrawingModel): void {
     setForm(toModelFormFields(model));
@@ -61,30 +93,64 @@ export default function ModelsPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
 
-    if (!isFormValid(form)) {
+    if (!isFormValid(form) || submitting) {
       return;
     }
 
-    const payload = {
-      name: form.name.trim(),
-      imageData: form.imageData,
-    };
+    setSubmitting(true);
 
-    if (editingId !== null) {
-      const existing: DrawingModel | undefined = models.find(
-        (item: DrawingModel) => item.id === editingId
-      );
+    try {
+      if (editingId !== null) {
+        const existing: DrawingModel | undefined = models.find(
+          (item: DrawingModel) => item.id === editingId
+        );
 
-      if (existing !== undefined) {
-        await upsertDrawingModel({ ...existing, ...payload });
+        if (existing === undefined) {
+          return;
+        }
+
+        let nextImagePath: string | null = existing.imagePath;
+
+        if (form.pendingDataUrl !== "") {
+          const blob: Blob = await dataUrlToBlob(form.pendingDataUrl);
+          nextImagePath = await uploadDrawingImage(blob, existing.id);
+        }
+
+        await upsertDrawingModel({
+          ...existing,
+          name: form.name.trim(),
+          imagePath: nextImagePath,
+        });
+      } else {
+        if (form.pendingDataUrl === "") {
+          return;
+        }
+
+        const newModel: DrawingModel = createDrawingModel({
+          name: form.name.trim(),
+          imagePath: null,
+        });
+
+        const blob: Blob = await dataUrlToBlob(form.pendingDataUrl);
+        const uploadedPath: string = await uploadDrawingImage(
+          blob,
+          newModel.id
+        );
+
+        await upsertDrawingModel({
+          ...newModel,
+          imagePath: uploadedPath,
+        });
       }
-    } else {
-      const newModel: DrawingModel = createDrawingModel(payload);
-      await upsertDrawingModel(newModel);
-    }
 
-    await refetchModels();
-    resetForm();
+      await refetchModels();
+      resetForm();
+    } catch (error: unknown) {
+      const message: string = error instanceof Error ? error.message : String(error);
+      await alert(`Erreur lors de l'enregistrement : ${message}`);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function handleDelete(id: string): Promise<void> {
@@ -93,14 +159,14 @@ export default function ModelsPage() {
     ).length;
 
     if (referencingCount > 0) {
-      window.alert(
+      await alert(
         `Ce modèle est utilisé par ${String(referencingCount)} produit(s). Supprimez d'abord les produits associés.`
       );
 
       return;
     }
 
-    if (!window.confirm("Supprimer ce modèle ?")) {
+    if (!(await confirm("Supprimer ce modèle ?", { variant: "danger", confirmLabel: "Supprimer" }))) {
       return;
     }
 
@@ -112,18 +178,22 @@ export default function ModelsPage() {
     }
   }
 
-  function updateField(field: keyof ModelFormFields, value: string): void {
-    setForm((previous: ModelFormFields) => ({ ...previous, [field]: value }));
+  function updateName(value: string): void {
+    setForm((previous: ModelFormFields) => ({ ...previous, name: value }));
   }
 
   async function handleImageFile(file: File): Promise<void> {
     const compressed: string = await compressImage(file);
-    updateField("imageData", compressed);
+
+    setForm((previous: ModelFormFields) => ({
+      ...previous,
+      pendingDataUrl: compressed,
+    }));
   }
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Modèles</h1>
       </div>
 
@@ -146,21 +216,21 @@ export default function ModelsPage() {
                 id="name"
                 type="text"
                 value={form.name}
-                onChange={(event) => updateField("name", event.target.value)}
+                onChange={(event) => updateName(event.target.value)}
                 className="w-full rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-foreground/50"
                 required
               />
             </div>
 
             <ImageDropZone
-              imageData={form.imageData}
+              previewUrl={previewSrc(form)}
               onFile={handleImageFile}
             />
 
             <div className="flex gap-3 pt-2">
               <button
                 type="submit"
-                disabled={!isFormValid(form)}
+                disabled={!isFormValid(form) || submitting}
                 className="btn-primary rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-80 disabled:opacity-40"
               >
                 {editingId !== null ? "Enregistrer" : "Ajouter"}
@@ -189,7 +259,7 @@ export default function ModelsPage() {
             >
               <div className="aspect-square overflow-hidden rounded-md">
                 <img
-                  src={model.imageData}
+                  src={drawingModelImageSrc(model)}
                   alt={model.name}
                   className="h-full w-full object-cover"
                 />
@@ -220,10 +290,10 @@ export default function ModelsPage() {
 }
 
 function ImageDropZone({
-  imageData,
+  previewUrl,
   onFile,
 }: {
-  imageData: string;
+  previewUrl: string;
   onFile: (file: File) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -261,13 +331,13 @@ function ImageDropZone({
     }
   }
 
-  if (imageData !== "") {
+  if (previewUrl !== "") {
     return (
       <div>
         <label className="mb-1 block text-sm text-foreground/70">Image</label>
         <div className="flex h-[200px] items-center justify-center overflow-hidden rounded-lg border border-foreground/10">
           <img
-            src={imageData}
+            src={previewUrl}
             alt="Aperçu"
             className="max-h-full max-w-full object-contain"
           />

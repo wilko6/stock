@@ -1,17 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces } from "next/font/google";
 import Nav from "@/app/_components/nav";
 import Preloader from "@/app/_components/preloader";
+import { DialogProvider } from "@/app/_components/dialog";
+import InputSelectOnFocus from "@/app/_components/input-select-on-focus";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  display: "swap",
+  axes: ["opsz", "SOFT"],
 });
 
 export const metadata: Metadata = {
@@ -27,7 +26,7 @@ export default function RootLayout({
   return (
     <html
       lang="fr"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${fraunces.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <div aria-hidden="true" className="gold-topbar" />
@@ -45,11 +44,14 @@ export default function RootLayout({
         <div aria-hidden="true" className="watercolor-dots" />
 
         <Preloader />
-        <div className="relative z-10 flex min-h-full flex-col">
-          <Nav />
-          <main className="flex-1 pt-14">{children}</main>
-          <div aria-hidden="true" className="gold-separator" />
-        </div>
+        <InputSelectOnFocus />
+        <DialogProvider>
+          <div className="relative z-10 flex min-h-full flex-col">
+            <Nav />
+            <main className="flex-1 pt-14">{children}</main>
+            <div aria-hidden="true" className="gold-separator" />
+          </div>
+        </DialogProvider>
       </body>
     </html>
   );

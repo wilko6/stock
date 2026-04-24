@@ -5,6 +5,7 @@ import { useSupabase } from "@/lib/use-supabase";
 import ProductGrid from "@/app/_components/product-grid";
 import SelectionSummary, { type SummaryItem } from "@/app/_components/selection-summary";
 import { useLocalStorage } from "@/lib/use-local-storage";
+import { useConfirm, useAlert } from "@/app/_components/dialog";
 import {
   fetchProducts,
   fetchElementTypes,
@@ -22,6 +23,7 @@ import {
   type TransactionItem,
   createPayment,
   centsToDisplay,
+  isSelectableProduct,
 } from "@/lib/types";
 
 export default function EventsPage() {
@@ -34,6 +36,10 @@ export default function EventsPage() {
   );
   const modelsMap: Map<string, DrawingModel> = new Map(
     models.map((item: DrawingModel) => [item.id, item])
+  );
+
+  const selectableProducts: Product[] = products.filter((product: Product) =>
+    isSelectableProduct(product, modelsMap)
   );
 
   const [quantities, setQuantities] = useLocalStorage<Record<string, number>>(
@@ -52,6 +58,9 @@ export default function EventsPage() {
     { id: string; items: TransactionItem[]; totalCents: number }[]
   >("event-sales", []);
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("");
+  const confirm = useConfirm();
+  const alert = useAlert();
 
   const itemsWithQuantity: {
     product: Product;
@@ -106,7 +115,7 @@ export default function EventsPage() {
     }));
   }
 
-  function handleValidateSale(): void {
+  async function handleValidateSale(): Promise<void> {
     if (!hasItems) {
       return;
     }
@@ -134,9 +143,9 @@ export default function EventsPage() {
     );
 
     if (
-      !window.confirm(
+      !(await confirm(
         `Montant d\u00fb\u00a0: ${centsToDisplay(saleTotalCents)}\u00a0\u20ac \u2014 Confirmer la vente\u00a0?`
-      )
+      ))
     ) {
       return;
     }
@@ -186,8 +195,18 @@ export default function EventsPage() {
     setSales((previous) => previous.filter((s) => s.id !== id));
   }
 
-  function handleDeleteSale(id: string): void {
-    if (!window.confirm("Supprimer cette vente\u00a0?")) {
+  async function handleClearCart(): Promise<void> {
+    if (!(await confirm("Vider le panier ?"))) {
+      return;
+    }
+
+    setQuantities({});
+    setPriceOverrides({});
+    setDescriptions({});
+  }
+
+  async function handleDeleteSale(id: string): Promise<void> {
+    if (!(await confirm("Supprimer cette vente\u00a0?", { variant: "danger", confirmLabel: "Supprimer" }))) {
       return;
     }
 
@@ -200,9 +219,9 @@ export default function EventsPage() {
     }
 
     if (
-      !window.confirm(
-        "Terminer l'\u00e9v\u00e9nement et enregistrer toutes les ventes\u00a0?"
-      )
+      !(await confirm(
+        "Terminer le march\u00e9 et enregistrer toutes les ventes\u00a0?"
+      ))
     ) {
       return;
     }
@@ -226,10 +245,10 @@ export default function EventsPage() {
     const currentStock: Stock = await fetchStock();
 
     for (const item of allItems) {
-      const available: number = currentStock[item.productId]?.["Usine"] ?? 0;
+      const available: number = currentStock[item.productId]?.["Stock"] ?? 0;
 
       if (item.quantity > available) {
-        window.alert(`Stock insuffisant pour ${item.productName}. Disponible\u00a0: ${String(available)}`);
+        await alert(`Stock insuffisant pour ${item.productName}. Disponible\u00a0: ${String(available)}`);
 
         return;
       }
@@ -244,7 +263,7 @@ export default function EventsPage() {
         0
       );
 
-      const sourceLocation: StorageLocation = "Usine";
+      const sourceLocation: StorageLocation = "Stock";
 
       const payment = createPayment({
         source: sourceLocation,
@@ -268,7 +287,7 @@ export default function EventsPage() {
       setDescriptions({});
       setSales([]);
     } catch {
-      window.alert("Une erreur est survenue. Veuillez r\u00e9essayer.");
+      await alert("Une erreur est survenue. Veuillez r\u00e9essayer.");
     } finally {
       setSubmitting(false);
     }
@@ -283,10 +302,10 @@ export default function EventsPage() {
     return (
       <div className="mx-auto w-full max-w-5xl px-4 py-8">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">&Eacute;v&eacute;nement</h1>
+          <h1 className="text-xl font-semibold">March&eacute;</h1>
         </div>
         <p className="py-12 text-center text-sm text-foreground/55">
-          Cr&eacute;ez des produits pour utiliser le mode &eacute;v&eacute;nement.
+          Cr&eacute;ez des produits pour utiliser le mode march&eacute;.
         </p>
       </div>
     );
@@ -295,15 +314,17 @@ export default function EventsPage() {
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4 sm:px-4 sm:py-8">
       <div className="mb-4 flex items-center justify-between sm:mb-6">
-        <h1 className="text-lg font-semibold sm:text-xl">&Eacute;v&eacute;nement</h1>
+        <h1 className="text-lg font-semibold sm:text-xl">March&eacute;</h1>
       </div>
 
       <ProductGrid
-        products={products}
+        products={selectableProducts}
         types={types}
         models={models}
         quantities={quantities}
         onQuantityChange={updateQuantity}
+        selectedTypeId={selectedTypeId}
+        onTypeChange={setSelectedTypeId}
       />
 
       {hasItems && (
@@ -325,14 +346,32 @@ export default function EventsPage() {
                 [productId]: value,
               }))
             }
+            onItemClick={(productId: string) => {
+              const product: Product | undefined = products.find(
+                (item: Product) => item.id === productId
+              );
+
+              if (product !== undefined) {
+                setSelectedTypeId(product.elementTypeId);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+            }}
+            onItemRemove={(productId: string) => updateQuantity(productId, 0)}
           />
-          <div className="flex justify-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={handleClearCart}
+              className="btn-secondary w-full rounded-md border border-foreground/20 px-5 py-3 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5 sm:w-auto sm:py-2.5"
+            >
+              Vider le panier
+            </button>
             <button
               type="button"
               onClick={handleValidateSale}
               className="btn-primary w-full rounded-md bg-foreground px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-80 sm:w-auto sm:py-2.5"
             >
-              Valider la vente
+              Valider le panier
             </button>
           </div>
         </div>
@@ -341,7 +380,7 @@ export default function EventsPage() {
       {sales.length > 0 && (
         <div className="mt-8 sm:mt-10">
           <h2 className="mb-3 text-sm font-semibold sm:mb-4">
-            Ventes de l&apos;&eacute;v&eacute;nement ({sales.length})
+            Ventes du march&eacute; ({sales.length})
           </h2>
           <div className="space-y-2">
             {sales.map(
@@ -388,7 +427,7 @@ export default function EventsPage() {
           </div>
           <div className="mt-4 flex flex-col gap-3 border-t border-foreground/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm font-medium">
-              Total &eacute;v&eacute;nement&nbsp;:
+              Total march&eacute;&nbsp;:
               <span className="ml-2 font-mono text-base">
                 {centsToDisplay(eventTotalCents)}&nbsp;&euro;
               </span>
@@ -399,7 +438,7 @@ export default function EventsPage() {
               disabled={submitting}
               className="btn-primary w-full rounded-md bg-foreground px-6 py-3 text-sm font-medium text-background transition-opacity hover:opacity-80 disabled:opacity-40 sm:w-auto"
             >
-              Fin de l&apos;&eacute;v&eacute;nement
+              Fin du march&eacute;
             </button>
           </div>
         </div>

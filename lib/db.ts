@@ -7,6 +7,7 @@ import {
   type StorageLocation,
   type Delivery,
   type Payment,
+  type Order,
 } from "@/lib/types";
 
 // --- Element Types ---
@@ -76,7 +77,7 @@ export async function deleteElementType(id: string): Promise<void> {
 interface DrawingModelRow {
   id: string;
   name: string;
-  image_data: string;
+  image_path: string | null;
   created_at: string;
 }
 
@@ -84,7 +85,7 @@ function drawingModelFromRow(row: DrawingModelRow): DrawingModel {
   return {
     id: row.id,
     name: row.name,
-    imageData: row.image_data,
+    imagePath: row.image_path,
     createdAt: row.created_at,
   };
 }
@@ -95,8 +96,50 @@ function drawingModelToRow(
   return {
     id: data.id,
     name: data.name,
-    image_data: data.imageData,
+    image_path: data.imagePath,
   };
+}
+
+const DRAWING_IMAGES_BUCKET: string = "drawing-models";
+
+function extensionForMimeType(mimeType: string): string {
+  if (mimeType === "image/png") {
+    return "png";
+  }
+
+  if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+    return "jpg";
+  }
+
+  if (mimeType === "image/webp") {
+    return "webp";
+  }
+
+  return "png";
+}
+
+export async function uploadDrawingImage(
+  file: Blob,
+  modelId: string
+): Promise<string> {
+  const ext: string = extensionForMimeType(file.type);
+  const path: string = `${modelId}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from(DRAWING_IMAGES_BUCKET)
+    .upload(path, file, { upsert: true, contentType: file.type });
+
+  if (error) throw error;
+
+  return path;
+}
+
+export async function deleteDrawingImage(path: string): Promise<void> {
+  const { error } = await supabase.storage
+    .from(DRAWING_IMAGES_BUCKET)
+    .remove([path]);
+
+  if (error) throw error;
 }
 
 export async function fetchDrawingModels(): Promise<DrawingModel[]> {
@@ -119,12 +162,31 @@ export async function upsertDrawingModel(data: DrawingModel): Promise<void> {
 }
 
 export async function deleteDrawingModel(id: string): Promise<void> {
+  const { data, error: selectError } = await supabase
+    .from("drawing_models")
+    .select("image_path")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (selectError) throw selectError;
+
+  const imagePath: string | null =
+    (data as { image_path: string | null } | null)?.image_path ?? null;
+
   const { error } = await supabase
     .from("drawing_models")
     .delete()
     .eq("id", id);
 
   if (error) throw error;
+
+  if (imagePath !== null) {
+    try {
+      await deleteDrawingImage(imagePath);
+    } catch {
+      // Best-effort cleanup — swallow storage errors
+    }
+  }
 }
 
 // --- Products ---
@@ -133,6 +195,7 @@ interface ProductRow {
   id: string;
   element_type_id: string;
   drawing_model_id: string;
+  min_stock: number;
   created_at: string;
 }
 
@@ -141,6 +204,7 @@ function productFromRow(row: ProductRow): Product {
     id: row.id,
     elementTypeId: row.element_type_id,
     drawingModelId: row.drawing_model_id,
+    minStock: row.min_stock ?? 0,
     createdAt: row.created_at,
   };
 }
@@ -161,6 +225,7 @@ export async function insertProduct(data: Product): Promise<void> {
     id: data.id,
     element_type_id: data.elementTypeId,
     drawing_model_id: data.drawingModelId,
+    min_stock: data.minStock,
   });
 
   if (error) throw error;
@@ -168,14 +233,27 @@ export async function insertProduct(data: Product): Promise<void> {
 
 export async function updateProduct(
   id: string,
-  data: { elementTypeId: string; drawingModelId: string }
+  data: { elementTypeId: string; drawingModelId: string; minStock: number }
 ): Promise<void> {
   const { error } = await supabase
     .from("products")
     .update({
       element_type_id: data.elementTypeId,
       drawing_model_id: data.drawingModelId,
+      min_stock: data.minStock,
     })
+    .eq("id", id);
+
+  if (error) throw error;
+}
+
+export async function setProductMinStock(
+  id: string,
+  minStock: number
+): Promise<void> {
+  const { error } = await supabase
+    .from("products")
+    .update({ min_stock: minStock })
     .eq("id", id);
 
   if (error) throw error;
@@ -312,6 +390,26 @@ export async function updateDeliveryDate(
   if (error) throw error;
 }
 
+export async function updateDelivery(data: Delivery): Promise<void> {
+  const { error } = await supabase
+    .from("deliveries")
+    .update({
+      source: data.source,
+      destination: data.destination,
+      items: data.items,
+      total_cents: data.totalCents,
+    })
+    .eq("id", data.id);
+
+  if (error) throw error;
+}
+
+export async function deleteDelivery(id: string): Promise<void> {
+  const { error } = await supabase.from("deliveries").delete().eq("id", id);
+
+  if (error) throw error;
+}
+
 // --- Payments ---
 
 interface PaymentRow {
@@ -362,6 +460,85 @@ export async function updatePaymentDate(
     .from("payments")
     .update({ created_at: createdAt })
     .eq("id", id);
+
+  if (error) throw error;
+}
+
+export async function updatePayment(data: Payment): Promise<void> {
+  const { error } = await supabase
+    .from("payments")
+    .update({
+      source: data.source,
+      items: data.items,
+      total_cents: data.totalCents,
+    })
+    .eq("id", data.id);
+
+  if (error) throw error;
+}
+
+export async function deletePayment(id: string): Promise<void> {
+  const { error } = await supabase.from("payments").delete().eq("id", id);
+
+  if (error) throw error;
+}
+
+// --- Orders ---
+
+interface OrderRow {
+  id: string;
+  items: Order["items"];
+  ordered_at: string;
+  delivered_at: string | null;
+  created_at: string;
+}
+
+function orderFromRow(row: OrderRow): Order {
+  return {
+    id: row.id,
+    items: row.items,
+    orderedAt: row.ordered_at,
+    deliveredAt: row.delivered_at,
+    createdAt: row.created_at,
+  };
+}
+
+export async function fetchOrders(): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select()
+    .order("ordered_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (data as OrderRow[]).map(orderFromRow);
+}
+
+export async function insertOrder(data: Order): Promise<void> {
+  const { error } = await supabase.from("orders").insert({
+    id: data.id,
+    items: data.items,
+    ordered_at: data.orderedAt,
+    delivered_at: data.deliveredAt,
+  });
+
+  if (error) throw error;
+}
+
+export async function updateOrderDelivered(
+  id: string,
+  deliveredAt: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("orders")
+    .update({ delivered_at: deliveredAt })
+    .eq("id", id);
+
+  if (error) throw error;
+}
+
+export async function deleteOrder(id: string): Promise<void> {
+  const { error } = await supabase.from("orders").delete().eq("id", id);
 
   if (error) throw error;
 }

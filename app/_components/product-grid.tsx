@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import type { ElementType, DrawingModel, Product } from "@/lib/types";
+import {
+  type ElementType,
+  type DrawingModel,
+  type Product,
+  drawingModelImageSrc,
+} from "@/lib/types";
 
 interface ProductGridProps {
   products: Product[];
@@ -9,6 +14,8 @@ interface ProductGridProps {
   models: DrawingModel[];
   quantities: Record<string, number>;
   onQuantityChange: (productId: string, value: number) => void;
+  selectedTypeId?: string;
+  onTypeChange?: (typeId: string) => void;
 }
 
 interface TypeTab {
@@ -22,8 +29,18 @@ export default function ProductGrid({
   models,
   quantities,
   onQuantityChange,
+  selectedTypeId,
+  onTypeChange,
 }: ProductGridProps) {
-  const [selectedTypeId, setSelectedTypeId] = useState<string>("");
+  const isControlled: boolean =
+    selectedTypeId !== undefined && onTypeChange !== undefined;
+  const [internalTypeId, setInternalTypeId] = useState<string>("");
+  const activeTypeIdInput: string = isControlled
+    ? (selectedTypeId ?? "")
+    : internalTypeId;
+  const setTypeId: (typeId: string) => void = isControlled
+    ? (onTypeChange ?? (() => {}))
+    : setInternalTypeId;
 
   const modelsMap: Map<string, DrawingModel> = new Map(
     models.map((item: DrawingModel) => [item.id, item])
@@ -43,9 +60,9 @@ export default function ProductGrid({
     }));
 
   const activeTypeId: string =
-    selectedTypeId !== "" &&
-    typeTabs.some((tab: TypeTab) => tab.id === selectedTypeId)
-      ? selectedTypeId
+    activeTypeIdInput !== "" &&
+    typeTabs.some((tab: TypeTab) => tab.id === activeTypeIdInput)
+      ? activeTypeIdInput
       : typeTabs[0]?.id ?? "";
 
   const filteredProducts: Product[] = products.filter(
@@ -62,8 +79,8 @@ export default function ProductGrid({
 
   return (
     <div>
-      <div className="-mx-3 mb-4 overflow-x-auto px-3 sm:-mx-0 sm:mb-6 sm:px-0">
-        <div className="flex gap-0.5 border-b border-foreground/10 sm:gap-1">
+      <div className="mb-4 sm:mb-6">
+        <div className="flex flex-wrap gap-0.5 border-b border-foreground/10 sm:gap-1">
           {typeTabs.map((tab: TypeTab) => {
             const isActive: boolean = tab.id === activeTypeId;
 
@@ -71,7 +88,7 @@ export default function ProductGrid({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setSelectedTypeId(tab.id)}
+                onClick={() => setTypeId(tab.id)}
                 className={`shrink-0 px-3 py-2.5 text-sm font-medium transition-colors sm:px-4 sm:py-3 ${
                   isActive
                     ? "border-b-2 border-foreground text-foreground"
@@ -100,10 +117,17 @@ export default function ProductGrid({
           return (
             <div
               key={product.id}
-              className={`flex flex-col rounded-lg border p-2 sm:p-3 ${
-                quantity > 0
-                  ? "border-foreground/30 bg-foreground/5"
-                  : "border-foreground/10"
+              role="button"
+              tabIndex={0}
+              onClick={() => onQuantityChange(product.id, quantity + 1)}
+              onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onQuantityChange(product.id, quantity + 1);
+                }
+              }}
+              className={`product-tile flex cursor-pointer flex-col rounded-lg p-2 sm:p-3 ${
+                quantity > 0 ? "product-tile-selected" : ""
               }`}
             >
               <div className="flex h-8 items-center justify-center sm:h-10">
@@ -113,12 +137,20 @@ export default function ProductGrid({
               </div>
               <div className="my-1 w-full overflow-hidden rounded-md sm:my-2">
                 <img
-                  src={model.imageData}
+                  src={drawingModelImageSrc(model)}
                   alt={model.name}
                   className="aspect-[4/3] w-full object-cover"
                 />
               </div>
-              <div className="flex h-10 items-center justify-center sm:h-11">
+              <div
+                className="flex h-10 items-center justify-center sm:h-11"
+                onClick={(event: React.MouseEvent<HTMLDivElement>) =>
+                  event.stopPropagation()
+                }
+                onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) =>
+                  event.stopPropagation()
+                }
+              >
                 <QuantitySelector
                   value={quantity}
                   onChange={(value: number) =>
@@ -146,7 +178,7 @@ function QuantitySelector({
       <button
         type="button"
         onClick={() => onChange(Math.max(0, value - 1))}
-        className="flex h-10 w-10 items-center justify-center rounded-lg border border-foreground/20 text-lg text-foreground/65 transition-colors hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15 sm:h-9 sm:w-9 sm:text-sm"
+        className="qty-btn flex h-10 w-10 items-center justify-center rounded-lg text-lg sm:h-9 sm:w-9 sm:text-sm"
       >
         &minus;
       </button>
@@ -163,7 +195,7 @@ function QuantitySelector({
       <button
         type="button"
         onClick={() => onChange(value + 1)}
-        className="flex h-10 w-10 items-center justify-center rounded-lg border border-foreground/20 text-lg text-foreground/65 transition-colors hover:bg-foreground/10 hover:text-foreground active:bg-foreground/15 sm:h-9 sm:w-9 sm:text-sm"
+        className="qty-btn flex h-10 w-10 items-center justify-center rounded-lg text-lg sm:h-9 sm:w-9 sm:text-sm"
       >
         +
       </button>

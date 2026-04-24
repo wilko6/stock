@@ -28,10 +28,12 @@ export function displayToCents(display: string): number {
   return Math.round(Number(display) * 100);
 }
 
+import { SUPABASE_URL } from "@/lib/supabase";
+
 export interface DrawingModel {
   id: string;
   name: string;
-  imageData: string;
+  imagePath: string | null;
   createdAt: string;
 }
 
@@ -41,31 +43,54 @@ export function createDrawingModel(
   return {
     id: crypto.randomUUID(),
     name: data.name,
-    imageData: data.imageData,
+    imagePath: data.imagePath,
     createdAt: new Date().toISOString(),
   };
+}
+
+export function drawingModelImageSrc(model: DrawingModel): string {
+  if (model.imagePath !== null) {
+    return `${SUPABASE_URL}/storage/v1/object/public/drawing-models/${model.imagePath}`;
+  }
+
+  return "";
 }
 
 export interface Product {
   id: string;
   elementTypeId: string;
   drawingModelId: string;
+  minStock: number;
   createdAt: string;
 }
 
 export function createProduct(
-  data: Omit<Product, "id" | "createdAt">
+  data: Omit<Product, "id" | "createdAt" | "minStock"> & { minStock?: number }
 ): Product {
   return {
     id: crypto.randomUUID(),
     elementTypeId: data.elementTypeId,
     drawingModelId: data.drawingModelId,
+    minStock: data.minStock ?? 0,
     createdAt: new Date().toISOString(),
   };
 }
 
+export function isSelectableProduct(
+  product: Product,
+  modelsMap: Map<string, DrawingModel>
+): boolean {
+  const model: DrawingModel | undefined = modelsMap.get(product.drawingModelId);
+
+  if (model === undefined) {
+    return false;
+  }
+
+  return model.name.trim().toLowerCase() !== "vierge";
+}
+
 export const STORAGE_LOCATIONS = [
-  "Usine",
+  "Stock",
   "Boutique 1",
   "Boutique 2",
   "Boutique 3",
@@ -73,7 +98,7 @@ export const STORAGE_LOCATIONS = [
 export type StorageLocation = (typeof STORAGE_LOCATIONS)[number];
 export type Stock = Record<string, Partial<Record<StorageLocation, number>>>;
 
-export type BoutiqueLocation = Exclude<StorageLocation, "Usine">;
+export type BoutiqueLocation = Exclude<StorageLocation, "Stock">;
 
 export interface TransactionItem {
   productId: string;
@@ -122,5 +147,33 @@ export function createPayment(
     items: data.items,
     totalCents: data.totalCents,
     createdAt: new Date().toISOString(),
+  };
+}
+
+export interface OrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface Order {
+  id: string;
+  items: OrderItem[];
+  orderedAt: string;
+  deliveredAt: string | null;
+  createdAt: string;
+}
+
+export function createOrder(
+  data: Omit<Order, "id" | "createdAt" | "orderedAt" | "deliveredAt">
+): Order {
+  const now: string = new Date().toISOString();
+
+  return {
+    id: crypto.randomUUID(),
+    items: data.items,
+    orderedAt: now,
+    deliveredAt: null,
+    createdAt: now,
   };
 }

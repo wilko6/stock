@@ -3,6 +3,7 @@
 import { useRef, type FormEvent } from "react";
 import { useSessionState } from "@/lib/use-session-state";
 import { useSupabase } from "@/lib/use-supabase";
+import { useConfirm, useAlert } from "@/app/_components/dialog";
 import {
   fetchElementTypes,
   upsertElementType,
@@ -76,6 +77,8 @@ export default function TypesPage() {
   const [form, setForm] = useSessionState<TypeFormFields>("type-form", emptyForm);
   const [editingId, setEditingId] = useSessionState<string | null>("type-editingId", null);
   const formRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
+  const alert = useAlert();
 
   function openEditForm(elementType: ElementType): void {
     setForm(toTypeFormFields(elementType));
@@ -128,14 +131,14 @@ export default function TypesPage() {
     ).length;
 
     if (referencingCount > 0) {
-      window.alert(
+      await alert(
         `Ce type est utilisé par ${String(referencingCount)} produit(s). Supprimez d'abord les produits associés.`
       );
 
       return;
     }
 
-    if (!window.confirm("Supprimer ce type ?")) {
+    if (!(await confirm("Supprimer ce type ?", { variant: "danger", confirmLabel: "Supprimer" }))) {
       return;
     }
 

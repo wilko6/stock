@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSessionState } from "@/lib/use-session-state";
 import { useSupabase } from "@/lib/use-supabase";
+import { useConfirm, useAlert } from "@/app/_components/dialog";
 import {
   fetchProducts,
   insertProduct,
@@ -16,6 +17,7 @@ import {
   type Product,
   createProduct,
   centsToDisplay,
+  drawingModelImageSrc,
 } from "@/lib/types";
 
 function deriveName(
@@ -43,6 +45,8 @@ export default function ProductsPage() {
     []
   );
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const confirm = useConfirm();
+  const alert = useAlert();
 
   const typesMap: Map<string, ElementType> = new Map(
     types.map((item: ElementType) => [item.id, item])
@@ -105,7 +109,7 @@ export default function ProductsPage() {
       await refetchProducts();
       resetSelection();
     } catch {
-      window.alert("Une erreur est survenue. Veuillez r\u00e9essayer.");
+      await alert("Une erreur est survenue. Veuillez r\u00e9essayer.");
     } finally {
       setSubmitting(false);
     }
@@ -114,7 +118,7 @@ export default function ProductsPage() {
   async function handleDelete(product: Product): Promise<void> {
     const name: string = deriveName(product, typesMap, modelsMap);
 
-    if (!window.confirm(`Supprimer le produit ${name} et son stock\u00a0?`)) {
+    if (!(await confirm(`Supprimer le produit ${name} et son stock\u00a0?`, { variant: "danger", confirmLabel: "Supprimer" }))) {
       return;
     }
 
@@ -183,7 +187,7 @@ export default function ProductsPage() {
                   }`}
                 >
                   <img
-                    src={model.imageData}
+                    src={drawingModelImageSrc(model)}
                     alt={model.name}
                     className="h-20 w-20 rounded object-cover"
                   />
@@ -275,7 +279,7 @@ export default function ProductsPage() {
                       <div className="flex items-center gap-3">
                         {model !== undefined ? (
                           <img
-                            src={model.imageData}
+                            src={drawingModelImageSrc(model)}
                             alt={model.name}
                             className="h-10 w-10 rounded object-cover"
                           />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const sessionCache: Map<string, unknown> = new Map();
 
@@ -8,9 +8,13 @@ export function useSessionState<T>(
   key: string,
   initialValue: T
 ): [T, (value: T | ((previous: T) => T)) => void] {
-  const [state, setState] = useState<T>(
-    sessionCache.has(key) ? (sessionCache.get(key) as T) : initialValue
-  );
+  const [state, setState] = useState<T>(initialValue);
+
+  useEffect(() => {
+    if (sessionCache.has(key)) {
+      setState(sessionCache.get(key) as T);
+    }
+  }, [key]);
 
   function setSessionState(value: T | ((previous: T) => T)): void {
     setState((current: T) => {

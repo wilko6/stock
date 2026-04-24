@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSessionState } from "@/lib/use-session-state";
 import { useSupabase } from "@/lib/use-supabase";
+import { useConfirm, useAlert } from "@/app/_components/dialog";
 import {
   fetchPayments,
   fetchStock,
@@ -11,7 +12,9 @@ import {
   fetchDrawingModels,
   insertPayment,
   applyStockDeltas,
+  updatePayment,
   updatePaymentDate as updatePaymentDateDb,
+  deletePayment,
 } from "@/lib/db";
 import {
   type ElementType,
@@ -24,16 +27,18 @@ import {
   STORAGE_LOCATIONS,
   createPayment,
   centsToDisplay,
+  isSelectableProduct,
 } from "@/lib/types";
 import DatePicker from "@/app/_components/date-picker";
 import ProductGrid from "@/app/_components/product-grid";
 import SelectionSummary, { type SummaryItem } from "@/app/_components/selection-summary";
+import { generateInvoiceHtml } from "@/lib/invoice";
 
 function getUnitPrice(
   elementType: ElementType,
   source: StorageLocation
 ): number {
-  if (source === "Usine") {
+  if (source === "Stock") {
     return elementType.directSalePrice;
   }
 
@@ -53,6 +58,16 @@ export default function PaymentsPage() {
   const [descriptions, setDescriptions] = useSessionState<Record<string, string>>("payment-descriptions", {});
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("");
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSource, setEditSource] = useState<string>("");
+  const [editQuantities, setEditQuantities] = useState<Record<string, number>>({});
+  const [editPriceOverrides, setEditPriceOverrides] = useState<Record<string, string>>({});
+  const [editDescriptions, setEditDescriptions] = useState<Record<string, string>>({});
+  const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
+  const confirm = useConfirm();
+  const alert = useAlert();
 
   const typesMap: Map<string, ElementType> = new Map(
     types.map((item: ElementType) => [item.id, item])
@@ -60,22 +75,21 @@ export default function PaymentsPage() {
   const modelsMap: Map<string, DrawingModel> = new Map(
     models.map((item: DrawingModel) => [item.id, item])
   );
+  const productsMap: Map<string, Product> = new Map(
+    products.map((item: Product) => [item.id, item])
+  );
+
+  const selectableProducts: Product[] = products.filter((product: Product) =>
+    isSelectableProduct(product, modelsMap)
+  );
 
   function getProductName(product: Product): string {
     const typeName: string =
-      typesMap.get(product.elementTypeId)?.name ?? "\u2014";
+      typesMap.get(product.elementTypeId)?.name ?? "—";
     const modelName: string =
-      modelsMap.get(product.drawingModelId)?.name ?? "\u2014";
+      modelsMap.get(product.drawingModelId)?.name ?? "—";
 
-    return `${typeName} \u2014 ${modelName}`;
-  }
-
-  function getAvailableStock(productId: string): number {
-    if (source === "") {
-      return 0;
-    }
-
-    return stock[productId]?.[source as StorageLocation] ?? 0;
+    return `${typeName} — ${modelName}`;
   }
 
   function updateQuantity(productId: string, value: number): void {
@@ -119,7 +133,7 @@ export default function PaymentsPage() {
       return;
     }
 
-    if (!window.confirm("Valider ce paiement\u00a0?")) {
+    if (!(await confirm("Valider ce paiement ?"))) {
       return;
     }
 
@@ -130,8 +144,8 @@ export default function PaymentsPage() {
         stock[entry.productId]?.[sourceLocation] ?? 0;
 
       if (entry.quantity > available) {
-        window.alert(
-          `Stock insuffisant pour ${entry.productName}. Disponible\u00a0: ${String(available)}`
+        await alert(
+          `Stock insuffisant pour ${entry.productName}. Disponible : ${String(available)}`
         );
 
         return;
@@ -184,7 +198,7 @@ export default function PaymentsPage() {
       setPriceOverrides({});
       setDescriptions({});
     } catch {
-      window.alert("Une erreur est survenue. Veuillez r\u00e9essayer.");
+      await alert("Une erreur est survenue. Veuillez réessayer.");
     } finally {
       setSubmitting(false);
     }
@@ -209,6 +223,261 @@ export default function PaymentsPage() {
     await refetchPayments();
   }
 
+  function handleInvoice(payment: Payment): void {
+    const html: string = generateInvoiceHtml(payment);
+    const win: Window | null = window.open("", "_blank");
+
+    if (win !== null) {
+      win.document.write(html);
+      win.document.close();
+    }
+  }
+
+  async function handleDeletePayment(payment: Payment): Promise<void> {
+    if (!(await confirm("Supprimer ce paiement ?", { variant: "danger", confirmLabel: "Supprimer" }))) {
+      return;
+    }
+
+    const deltas: { productId: string; location: StorageLocation; delta: number }[] =
+      payment.items.map((item: TransactionItem) => ({
+        productId: item.productId,
+        location: payment.source,
+        delta: item.quantity,
+      }));
+
+    try {
+      await applyStockDeltas(deltas);
+    } catch {
+      await alert("Une erreur est survenue. Veuillez réessayer.");
+
+      return;
+    }
+
+    try {
+      await deletePayment(payment.id);
+    } catch {
+      const inverseDeltas: { productId: string; location: StorageLocation; delta: number }[] =
+        deltas.map((entry) => ({
+          productId: entry.productId,
+          location: entry.location,
+          delta: -entry.delta,
+        }));
+
+      try {
+        await applyStockDeltas(inverseDeltas);
+      } catch {
+        // Stock rollback failed — surface the original error anyway.
+      }
+
+      await alert("Erreur lors de la suppression. Veuillez réessayer.");
+
+      return;
+    }
+
+    if (editingId === payment.id) {
+      resetEditState();
+    }
+
+    await refetchPayments();
+    await refetchStock();
+  }
+
+  function resetEditState(): void {
+    setEditingId(null);
+    setEditSource("");
+    setEditQuantities({});
+    setEditPriceOverrides({});
+    setEditDescriptions({});
+  }
+
+  async function enterEditMode(payment: Payment): Promise<void> {
+    if (editingId !== null && editingId !== payment.id) {
+      if (!(await confirm("Annuler les modifications en cours ?"))) {
+        return;
+      }
+    }
+
+    const nextQuantities: Record<string, number> = {};
+    const nextPriceOverrides: Record<string, string> = {};
+    const nextDescriptions: Record<string, string> = {};
+
+    for (const item of payment.items) {
+      nextQuantities[item.productId] = item.quantity;
+
+      const product: Product | undefined = productsMap.get(item.productId);
+      const elementType: ElementType | undefined = product !== undefined
+        ? typesMap.get(product.elementTypeId)
+        : undefined;
+      const autoPrice: number = elementType !== undefined
+        ? getUnitPrice(elementType, payment.source)
+        : 0;
+
+      if (item.unitPriceCents !== autoPrice) {
+        nextPriceOverrides[item.productId] = (item.unitPriceCents / 100).toString();
+      }
+
+      if (item.description !== undefined) {
+        nextDescriptions[item.productId] = item.description;
+      }
+    }
+
+    setEditingId(payment.id);
+    setEditSource(payment.source);
+    setEditQuantities(nextQuantities);
+    setEditPriceOverrides(nextPriceOverrides);
+    setEditDescriptions(nextDescriptions);
+  }
+
+  function updateEditQuantity(productId: string, value: number): void {
+    setEditQuantities((previous: Record<string, number>) => ({
+      ...previous,
+      [productId]: Math.max(0, value),
+    }));
+  }
+
+  function buildEditSummaryItems(): SummaryItem[] {
+    if (editSource === "") {
+      return [];
+    }
+
+    const editSourceLocation: StorageLocation = editSource as StorageLocation;
+
+    return products
+      .filter((product: Product) => (editQuantities[product.id] ?? 0) > 0)
+      .map((product: Product): SummaryItem => {
+        const elementType: ElementType | undefined = typesMap.get(product.elementTypeId);
+        const autoPrice: number = elementType !== undefined
+          ? getUnitPrice(elementType, editSourceLocation)
+          : 0;
+        const override: string | undefined = editPriceOverrides[product.id];
+        const unitPriceCents: number =
+          override !== undefined && override !== ""
+            ? Math.round(Number(override) * 100)
+            : autoPrice;
+
+        return {
+          productId: product.id,
+          productName: getProductName(product),
+          quantity: editQuantities[product.id],
+          unitPriceCents,
+          autoPrice,
+        };
+      });
+  }
+
+  async function handleSaveEdit(original: Payment): Promise<void> {
+    if (editSubmitting) {
+      return;
+    }
+
+    const editSummary: SummaryItem[] = buildEditSummaryItems();
+
+    if (editSummary.length === 0) {
+      await alert("Aucun article sélectionné");
+
+      return;
+    }
+
+    if (editSource === "") {
+      return;
+    }
+
+    const newSourceLocation: StorageLocation = editSource as StorageLocation;
+
+    type DeltaEntry = { productId: string; location: StorageLocation; delta: number };
+    const deltaMap: Map<string, DeltaEntry> = new Map();
+
+    function addDelta(productId: string, location: StorageLocation, amount: number): void {
+      const key: string = `${productId}|${location}`;
+      const existing: DeltaEntry | undefined = deltaMap.get(key);
+
+      if (existing === undefined) {
+        deltaMap.set(key, { productId, location, delta: amount });
+
+        return;
+      }
+
+      existing.delta += amount;
+    }
+
+    for (const item of original.items) {
+      addDelta(item.productId, original.source, item.quantity);
+    }
+
+    for (const item of editSummary) {
+      addDelta(item.productId, newSourceLocation, -item.quantity);
+    }
+
+    const deltas: DeltaEntry[] = [];
+
+    for (const entry of deltaMap.values()) {
+      if (entry.delta === 0) {
+        continue;
+      }
+
+      deltas.push(entry);
+    }
+
+    for (const entry of deltas) {
+      const currentStock: number = stock[entry.productId]?.[entry.location] ?? 0;
+      const projected: number = currentStock + entry.delta;
+
+      if (projected < 0) {
+        await alert(
+          `Stock insuffisant à ${entry.location}. Manquant : ${String(-projected)}`
+        );
+
+        return;
+      }
+    }
+
+    const items: TransactionItem[] = editSummary.map(
+      (item: SummaryItem): TransactionItem => {
+        const description: string | undefined = editDescriptions[item.productId]?.trim() || undefined;
+
+        return {
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPriceCents: item.unitPriceCents,
+          ...(description !== undefined ? { description } : {}),
+        };
+      }
+    );
+
+    const totalCents: number = items.reduce(
+      (sum: number, item: TransactionItem) =>
+        sum + item.quantity * item.unitPriceCents,
+      0
+    );
+
+    const updated: Payment = {
+      ...original,
+      source: newSourceLocation,
+      items,
+      totalCents,
+    };
+
+    try {
+      setEditSubmitting(true);
+      await applyStockDeltas(deltas);
+      await updatePayment(updated);
+      await refetchPayments();
+      await refetchStock();
+      resetEditState();
+    } catch {
+      await alert("Une erreur est survenue. Veuillez réessayer.");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  function hasMissingProducts(payment: Payment): boolean {
+    return payment.items.some(
+      (item: TransactionItem) => !productsMap.has(item.productId)
+    );
+  }
+
   const draftItemCount: number = summaryItems.reduce(
     (sum: number, entry: SummaryItem) => sum + entry.quantity,
     0
@@ -231,6 +500,8 @@ export default function PaymentsPage() {
       </div>
     );
   }
+
+  const editSummary: SummaryItem[] = editingId !== null ? buildEditSummaryItems() : [];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8">
@@ -268,11 +539,13 @@ export default function PaymentsPage() {
         {source !== "" && (
           <div className="mt-6">
             <ProductGrid
-              products={products}
+              products={selectableProducts}
               types={types}
               models={models}
               quantities={quantities}
               onQuantityChange={updateQuantity}
+              selectedTypeId={selectedTypeId}
+              onTypeChange={setSelectedTypeId}
             />
           </div>
         )}
@@ -295,6 +568,15 @@ export default function PaymentsPage() {
                   [productId]: value,
                 }))
               }
+              onItemClick={(productId: string) => {
+                const product: Product | undefined = productsMap.get(productId);
+
+                if (product !== undefined) {
+                  setSelectedTypeId(product.elementTypeId);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+              }}
+              onItemRemove={(productId: string) => updateQuantity(productId, 0)}
             />
           </div>
         )}
@@ -325,140 +607,275 @@ export default function PaymentsPage() {
           <div className="space-y-3">
             {sortedPayments.map((payment: Payment) => {
               const isExpanded: boolean = expandedIds.has(payment.id);
+              const isEditing: boolean = editingId === payment.id;
+              const missingProducts: boolean = hasMissingProducts(payment);
               const itemCount: number = payment.items.reduce(
-                (sum: number, item: TransactionItem) =>
-                  sum + item.quantity,
+                (sum: number, item: TransactionItem) => sum + item.quantity,
+                0
+              );
+
+              function getPurchasePriceCents(item: TransactionItem): number {
+                const product: Product | undefined = productsMap.get(item.productId);
+
+                if (product === undefined) {
+                  return 0;
+                }
+
+                return typesMap.get(product.elementTypeId)?.purchasePrice ?? 0;
+              }
+
+              const totalBenefitCents: number = payment.items.reduce(
+                (sum: number, item: TransactionItem) => {
+                  const purchasePriceCents: number = getPurchasePriceCents(item);
+
+                  return (
+                    sum + item.quantity * (item.unitPriceCents - purchasePriceCents)
+                  );
+                },
                 0
               );
 
               return (
-                <PaymentCard
+                <div
                   key={payment.id}
-                  payment={payment}
-                  itemCount={itemCount}
-                  isExpanded={isExpanded}
-                  onToggle={() => toggleExpanded(payment.id)}
-                  onDateChange={(dateStr: string) =>
-                    handleUpdatePaymentDate(payment.id, dateStr)
-                  }
-                />
+                  className="rounded-lg border border-foreground/10"
+                >
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleExpanded(payment.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleExpanded(payment.id);
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-center gap-4 px-4 py-3 text-left text-sm transition-colors hover:bg-foreground/5"
+                  >
+                    <DatePicker
+                      value={payment.createdAt}
+                      onChange={(dateStr) =>
+                        handleUpdatePaymentDate(payment.id, dateStr)
+                      }
+                    />
+                    <span className="text-foreground">{payment.source}</span>
+                    <span className="text-foreground/80">
+                      {itemCount} article(s)
+                    </span>
+                    <span className="ml-auto text-foreground/60">
+                      {isExpanded ? "▾" : "▸"}
+                    </span>
+                  </div>
+
+                  {isExpanded && !isEditing && (
+                    <div className="border-t border-foreground/10 px-4 pb-4 pt-2">
+                      <div className="overflow-x-auto rounded-lg border border-foreground/10">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="thead-row border-b border-foreground/10">
+                              <th className="px-4 py-3 font-medium">
+                                Produit
+                              </th>
+                              <th className="px-4 py-3 text-right font-medium">
+                                Qt&eacute;
+                              </th>
+                              <th className="px-4 py-3 text-right font-medium">
+                                Prix d&rsquo;achat
+                              </th>
+                              <th className="px-4 py-3 text-right font-medium">
+                                Prix unitaire
+                              </th>
+                              <th className="px-4 py-3 text-right font-medium">
+                                B&eacute;n&eacute;fice
+                              </th>
+                              <th className="px-4 py-3 text-right font-medium">
+                                Sous-total
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {payment.items.map((item: TransactionItem) => {
+                              const purchasePriceCents: number = getPurchasePriceCents(item);
+                              const benefitCents: number = item.unitPriceCents - purchasePriceCents;
+
+                              return (
+                                <tr
+                                  key={item.productId}
+                                  className="border-b border-foreground/5 last:border-b-0"
+                                >
+                                  <td className="px-4 py-3">
+                                    {item.productName}
+                                    {item.description !== undefined && (
+                                      <span className="ml-2 text-xs text-foreground/55">
+                                        ({item.description})
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-mono">
+                                    {item.quantity}
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-mono text-foreground/70">
+                                    {centsToDisplay(purchasePriceCents)}
+                                    &nbsp;&euro;
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-mono text-foreground/70">
+                                    {centsToDisplay(item.unitPriceCents)}
+                                    &nbsp;&euro;
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-mono text-foreground/70">
+                                    {centsToDisplay(benefitCents)}
+                                    &nbsp;&euro;
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-mono text-foreground/70">
+                                    {centsToDisplay(item.quantity * item.unitPriceCents)}
+                                    &nbsp;&euro;
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {missingProducts && (
+                        <p className="mt-3 text-sm text-foreground/65">
+                          Ce paiement contient des produits supprim&eacute;s. Modification indisponible.
+                        </p>
+                      )}
+                      <div className="mt-3 flex items-center justify-between">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-sm font-medium">
+                            Total&nbsp;: {centsToDisplay(payment.totalCents)}
+                            &nbsp;&euro;
+                          </span>
+                          <span className="text-sm font-medium">
+                            Total b&eacute;n&eacute;fice&nbsp;: {centsToDisplay(totalBenefitCents)}
+                            &nbsp;&euro;
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleInvoice(payment)}
+                            className="btn-secondary rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5"
+                          >
+                            Facture
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => enterEditMode(payment)}
+                            disabled={missingProducts}
+                            className="btn-secondary rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40"
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePayment(payment)}
+                            className="btn-danger rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-red-500/80 transition-colors hover:bg-red-500/5 hover:text-red-500"
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isExpanded && isEditing && (
+                    <div className="border-t border-foreground/10 px-4 pb-4 pt-4">
+                      <div>
+                        <span className="mb-2 block text-sm text-foreground/70">
+                          Source
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {STORAGE_LOCATIONS.map((location: StorageLocation) => (
+                            <button
+                              key={location}
+                              type="button"
+                              onClick={() => setEditSource(location)}
+                              className={`rounded-md border px-3 py-1.5 text-sm transition-all ${
+                                editSource === location
+                                  ? "btn-selected"
+                                  : "border-foreground/15 bg-white/80 text-foreground/60 hover:bg-white hover:text-foreground"
+                              }`}
+                            >
+                              {location}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <ProductGrid
+                          products={selectableProducts}
+                          types={types}
+                          models={models}
+                          quantities={editQuantities}
+                          onQuantityChange={updateEditQuantity}
+                          selectedTypeId={selectedTypeId}
+                          onTypeChange={setSelectedTypeId}
+                        />
+                      </div>
+
+                      {editSummary.length > 0 && (
+                        <div className="mt-4">
+                          <SelectionSummary
+                            items={editSummary}
+                            priceOverrides={editPriceOverrides}
+                            onPriceOverrideChange={(productId: string, value: string) =>
+                              setEditPriceOverrides((previous: Record<string, string>) => ({
+                                ...previous,
+                                [productId]: value,
+                              }))
+                            }
+                            descriptions={editDescriptions}
+                            onDescriptionChange={(productId: string, value: string) =>
+                              setEditDescriptions((previous: Record<string, string>) => ({
+                                ...previous,
+                                [productId]: value,
+                              }))
+                            }
+                            onItemClick={(productId: string) => {
+                              const product: Product | undefined =
+                                productsMap.get(productId);
+
+                              if (product !== undefined) {
+                                setSelectedTypeId(product.elementTypeId);
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                              }
+                            }}
+                            onItemRemove={(productId: string) =>
+                              updateEditQuantity(productId, 0)
+                            }
+                          />
+                        </div>
+                      )}
+
+                      <div className="mt-4 flex items-center justify-end gap-2 border-t border-foreground/10 pt-4">
+                        <button
+                          type="button"
+                          onClick={resetEditState}
+                          disabled={editSubmitting}
+                          className="btn-secondary rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40"
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEdit(payment)}
+                          disabled={editSubmitting}
+                          className="btn-primary rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-80 disabled:opacity-40"
+                        >
+                          Enregistrer
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function PaymentCard({
-  payment,
-  itemCount,
-  isExpanded,
-  onToggle,
-  onDateChange,
-}: {
-  payment: Payment;
-  itemCount: number;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onDateChange: (dateStr: string) => void;
-}) {
-  return (
-    <div className="rounded-lg border border-foreground/10">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onToggle}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onToggle();
-          }
-        }}
-        className="flex w-full cursor-pointer items-center justify-between rounded-t-lg px-4 py-3 text-left text-sm transition-colors"
-        style={{
-          background: "linear-gradient(135deg, var(--sage), var(--sage-dark))",
-          color: "var(--linen)",
-        }}
-      >
-        <div className="flex items-center gap-6">
-          <DatePicker
-            value={payment.createdAt}
-            onChange={(dateStr) => onDateChange(dateStr)}
-          />
-          <span className="font-medium">{payment.source}</span>
-          <span className="opacity-85">
-            {itemCount} article(s)
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="font-mono font-semibold" style={{ color: "inherit" }}>
-            {centsToDisplay(payment.totalCents)}&nbsp;&euro;
-          </span>
-          <span className="opacity-60">
-            {isExpanded ? "\u25be" : "\u25b8"}
-          </span>
-        </div>
-      </div>
-
-      {isExpanded && (
-        <div className="border-t border-foreground/10">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="thead-row border-b border-foreground/10">
-                <th className="px-4 py-3 font-medium">Produit</th>
-                <th className="px-4 py-3 text-right font-medium">
-                  Qt&eacute;
-                </th>
-                <th className="px-4 py-3 text-right font-medium">
-                  Prix unitaire
-                </th>
-                <th className="px-4 py-3 text-right font-medium">
-                  Sous-total
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {payment.items.map((item: TransactionItem) => (
-                <tr
-                  key={item.productId}
-                  className="border-b border-foreground/5 last:border-b-0"
-                >
-                  <td className="px-4 py-3">
-                    {item.productName}
-                    {item.description !== undefined && (
-                      <span className="ml-2 text-xs text-foreground/55">
-                        ({item.description})
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">
-                    {item.quantity}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-foreground/70">
-                    {centsToDisplay(item.unitPriceCents)}&nbsp;&euro;
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono text-foreground/70">
-                    {centsToDisplay(item.quantity * item.unitPriceCents)}
-                    &nbsp;&euro;
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-foreground/10 font-medium">
-                <td className="px-4 py-3" colSpan={3}>
-                  Total
-                </td>
-                <td className="px-4 py-3 text-right font-mono">
-                  {centsToDisplay(payment.totalCents)}&nbsp;&euro;
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   fetchStock,
   fetchDeliveries,
   fetchPayments,
+  fetchOrders,
 } from "@/lib/db";
 
 const cache: Map<string, unknown> = new Map();
@@ -27,6 +28,7 @@ export function preloadAll(): void {
     { key: "fetchStock", fn: fetchStock },
     { key: "fetchDeliveries", fn: fetchDeliveries },
     { key: "fetchPayments", fn: fetchPayments },
+    { key: "fetchOrders", fn: fetchOrders },
   ];
 
   for (const loader of loaders) {
@@ -41,9 +43,8 @@ export function useSupabase<T>(
   initialValue: T
 ): [T, () => Promise<void>] {
   const cacheKey: string = fetchFn.name || fetchFn.toString().slice(0, 50);
-  const cached: T | undefined = cache.get(cacheKey) as T | undefined;
 
-  const [data, setData] = useState<T>(cached ?? initialValue);
+  const [data, setData] = useState<T>(initialValue);
 
   const refetch = useCallback(async () => {
     const result: T = await fetchFn();
@@ -54,6 +55,7 @@ export function useSupabase<T>(
   useEffect(() => {
     let isActive: boolean = true;
 
+    const cached: T | undefined = cache.get(cacheKey) as T | undefined;
     if (cached !== undefined) {
       setData(cached);
     }
@@ -73,7 +75,7 @@ export function useSupabase<T>(
     return () => {
       isActive = false;
     };
-  }, [fetchFn, cacheKey, cached]);
+  }, [fetchFn, cacheKey]);
 
   return [data, refetch];
 }

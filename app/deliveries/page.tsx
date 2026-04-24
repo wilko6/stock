@@ -8,7 +8,9 @@ import SelectionSummary, { type SummaryItem } from "@/app/_components/selection-
 import {
   fetchDeliveries,
   insertDelivery,
+  updateDelivery,
   updateDeliveryDate as updateDeliveryDateDb,
+  deleteDelivery,
   fetchStock,
   applyStockDeltas,
   fetchProducts,
@@ -26,20 +28,22 @@ import {
   STORAGE_LOCATIONS,
   createDelivery,
   centsToDisplay,
+  isSelectableProduct,
 } from "@/lib/types";
 import DatePicker from "@/app/_components/date-picker";
 import { generateInvoiceHtml } from "@/lib/invoice";
+import { useConfirm, useAlert } from "@/app/_components/dialog";
 
 function getProductName(
   product: Product,
   typesMap: Map<string, ElementType>,
   modelsMap: Map<string, DrawingModel>
 ): string {
-  const typeName: string = typesMap.get(product.elementTypeId)?.name ?? "\u2014";
+  const typeName: string = typesMap.get(product.elementTypeId)?.name ?? "—";
   const modelName: string =
-    modelsMap.get(product.drawingModelId)?.name ?? "\u2014";
+    modelsMap.get(product.drawingModelId)?.name ?? "—";
 
-  return `${typeName} \u2014 ${modelName}`;
+  return `${typeName} — ${modelName}`;
 }
 
 export default function DeliveriesPage() {
@@ -55,6 +59,16 @@ export default function DeliveriesPage() {
   const [descriptions, setDescriptions] = useSessionState<Record<string, string>>("delivery-descriptions", {});
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("");
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDestination, setEditDestination] = useState<string>("");
+  const [editQuantities, setEditQuantities] = useState<Record<string, number>>({});
+  const [editPriceOverrides, setEditPriceOverrides] = useState<Record<string, string>>({});
+  const [editDescriptions, setEditDescriptions] = useState<Record<string, string>>({});
+  const [editSubmitting, setEditSubmitting] = useState<boolean>(false);
+  const confirm = useConfirm();
+  const alert = useAlert();
 
   const typesMap: Map<string, ElementType> = new Map(
     types.map((item: ElementType) => [item.id, item])
@@ -62,8 +76,11 @@ export default function DeliveriesPage() {
   const modelsMap: Map<string, DrawingModel> = new Map(
     models.map((item: DrawingModel) => [item.id, item])
   );
+  const productsMap: Map<string, Product> = new Map(
+    products.map((item: Product) => [item.id, item])
+  );
 
-  const source: string = "Usine";
+  const source: string = "Stock";
 
   const deliverableProducts: Product[] = products.filter(
     (product: Product) => {
@@ -71,12 +88,16 @@ export default function DeliveriesPage() {
         product.elementTypeId
       );
 
-      return elementType !== undefined && elementType.intermediarySalePrice > 0;
+      return (
+        elementType !== undefined &&
+        elementType.intermediarySalePrice > 0 &&
+        isSelectableProduct(product, modelsMap)
+      );
     }
   );
 
   function getSourceStock(productId: string): number {
-    return stock[productId]?.["Usine"] ?? 0;
+    return stock[productId]?.["Stock"] ?? 0;
   }
 
   function updateQuantity(productId: string, value: number): void {
@@ -121,7 +142,7 @@ export default function DeliveriesPage() {
       return;
     }
 
-    if (!window.confirm("Valider cette livraison\u00a0?")) {
+    if (!(await confirm("Valider cette livraison ?"))) {
       return;
     }
 
@@ -141,8 +162,8 @@ export default function DeliveriesPage() {
 
     if (insufficientEntry !== undefined) {
       const available: number = getSourceStock(insufficientEntry.product.id);
-      window.alert(
-        `Stock insuffisant. Disponible\u00a0: ${String(available)}`
+      await alert(
+        `Stock insuffisant. Disponible : ${String(available)}`
       );
 
       return;
@@ -196,7 +217,7 @@ export default function DeliveriesPage() {
       setPriceOverrides({});
       setDescriptions({});
     } catch {
-      window.alert("Une erreur est survenue. Veuillez r\u00e9essayer.");
+      await alert("Une erreur est survenue. Veuillez réessayer.");
     } finally {
       setSubmitting(false);
     }
@@ -231,6 +252,277 @@ export default function DeliveriesPage() {
     await refetchDeliveries();
   }
 
+  async function handleDeleteDelivery(delivery: Delivery): Promise<void> {
+    if (!(await confirm("Supprimer cette livraison ?", { variant: "danger", confirmLabel: "Supprimer" }))) {
+      return;
+    }
+
+    const deltas: { productId: string; location: StorageLocation; delta: number }[] = [];
+
+    for (const item of delivery.items) {
+      deltas.push({
+        productId: item.productId,
+        location: delivery.source,
+        delta: item.quantity,
+      });
+      deltas.push({
+        productId: item.productId,
+        location: delivery.destination,
+        delta: -item.quantity,
+      });
+    }
+
+    for (const entry of deltas) {
+      if (entry.delta >= 0) {
+        continue;
+      }
+
+      const currentStock: number = stock[entry.productId]?.[entry.location] ?? 0;
+      const projected: number = currentStock + entry.delta;
+
+      if (projected < 0) {
+        await alert(
+          `Stock insuffisant à ${entry.location} pour annuler cette livraison. Disponible : ${String(currentStock)}`
+        );
+
+        return;
+      }
+    }
+
+    try {
+      await applyStockDeltas(deltas);
+    } catch {
+      await alert("Une erreur est survenue. Veuillez réessayer.");
+
+      return;
+    }
+
+    try {
+      await deleteDelivery(delivery.id);
+    } catch {
+      const inverseDeltas: { productId: string; location: StorageLocation; delta: number }[] =
+        deltas.map((entry) => ({
+          productId: entry.productId,
+          location: entry.location,
+          delta: -entry.delta,
+        }));
+
+      try {
+        await applyStockDeltas(inverseDeltas);
+      } catch {
+        // Stock rollback failed — surface the original error anyway.
+      }
+
+      await alert("Erreur lors de la suppression. Veuillez réessayer.");
+
+      return;
+    }
+
+    if (editingId === delivery.id) {
+      resetEditState();
+    }
+
+    await refetchDeliveries();
+    await refetchStock();
+  }
+
+  function resetEditState(): void {
+    setEditingId(null);
+    setEditDestination("");
+    setEditQuantities({});
+    setEditPriceOverrides({});
+    setEditDescriptions({});
+  }
+
+  async function enterEditMode(delivery: Delivery): Promise<void> {
+    if (editingId !== null && editingId !== delivery.id) {
+      if (!(await confirm("Annuler les modifications en cours ?"))) {
+        return;
+      }
+    }
+
+    const nextQuantities: Record<string, number> = {};
+    const nextPriceOverrides: Record<string, string> = {};
+    const nextDescriptions: Record<string, string> = {};
+
+    for (const item of delivery.items) {
+      nextQuantities[item.productId] = item.quantity;
+
+      const product: Product | undefined = productsMap.get(item.productId);
+      const elementType: ElementType | undefined = product !== undefined
+        ? typesMap.get(product.elementTypeId)
+        : undefined;
+      const autoPrice: number = elementType?.intermediarySalePrice ?? 0;
+
+      if (item.unitPriceCents !== autoPrice) {
+        nextPriceOverrides[item.productId] = (item.unitPriceCents / 100).toString();
+      }
+
+      if (item.description !== undefined) {
+        nextDescriptions[item.productId] = item.description;
+      }
+    }
+
+    setEditingId(delivery.id);
+    setEditDestination(delivery.destination);
+    setEditQuantities(nextQuantities);
+    setEditPriceOverrides(nextPriceOverrides);
+    setEditDescriptions(nextDescriptions);
+  }
+
+  function updateEditQuantity(productId: string, value: number): void {
+    setEditQuantities((previous: Record<string, number>) => ({
+      ...previous,
+      [productId]: Math.max(0, value),
+    }));
+  }
+
+  function buildEditSummaryItems(): SummaryItem[] {
+    return deliverableProducts
+      .filter((product: Product) => (editQuantities[product.id] ?? 0) > 0)
+      .map((product: Product): SummaryItem => {
+        const elementType: ElementType | undefined = typesMap.get(
+          product.elementTypeId
+        );
+        const autoPrice: number = elementType?.intermediarySalePrice ?? 0;
+        const override: string | undefined = editPriceOverrides[product.id];
+        const unitPriceCents: number =
+          override !== undefined && override !== ""
+            ? Math.round(Number(override) * 100)
+            : autoPrice;
+
+        return {
+          productId: product.id,
+          productName: getProductName(product, typesMap, modelsMap),
+          quantity: editQuantities[product.id],
+          unitPriceCents,
+          autoPrice,
+        };
+      });
+  }
+
+  async function handleSaveEdit(original: Delivery): Promise<void> {
+    if (editSubmitting) {
+      return;
+    }
+
+    const editSummary: SummaryItem[] = buildEditSummaryItems();
+
+    if (editSummary.length === 0) {
+      await alert("Aucun article sélectionné");
+
+      return;
+    }
+
+    const newDestination: StorageLocation = editDestination as StorageLocation;
+    const originalSource: StorageLocation = original.source;
+
+    if (originalSource === newDestination) {
+      await alert("La source et la destination doivent être différentes");
+
+      return;
+    }
+
+    type DeltaEntry = { productId: string; location: StorageLocation; delta: number };
+    const deltaMap: Map<string, DeltaEntry> = new Map();
+
+    function addDelta(productId: string, location: StorageLocation, amount: number): void {
+      const key: string = `${productId}|${location}`;
+      const existing: DeltaEntry | undefined = deltaMap.get(key);
+
+      if (existing === undefined) {
+        deltaMap.set(key, { productId, location, delta: amount });
+
+        return;
+      }
+
+      existing.delta += amount;
+    }
+
+    for (const item of original.items) {
+      addDelta(item.productId, original.source, item.quantity);
+      addDelta(item.productId, original.destination, -item.quantity);
+    }
+
+    for (const item of editSummary) {
+      addDelta(item.productId, originalSource, -item.quantity);
+      addDelta(item.productId, newDestination, item.quantity);
+    }
+
+    const deltas: DeltaEntry[] = [];
+
+    for (const entry of deltaMap.values()) {
+      if (entry.delta === 0) {
+        continue;
+      }
+
+      deltas.push(entry);
+    }
+
+    for (const entry of deltas) {
+      const currentStock: number = stock[entry.productId]?.[entry.location] ?? 0;
+      const projected: number = currentStock + entry.delta;
+
+      if (projected < 0) {
+        await alert(
+          `Stock insuffisant à ${entry.location}. Manquant : ${String(-projected)}`
+        );
+
+        return;
+      }
+    }
+
+    const items: TransactionItem[] = editSummary.map(
+      (item: SummaryItem): TransactionItem => {
+        const description: string | undefined = editDescriptions[item.productId];
+        const trimmed: string | undefined = description !== undefined && description !== ""
+          ? description
+          : undefined;
+
+        return {
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPriceCents: item.unitPriceCents,
+          ...(trimmed !== undefined ? { description: trimmed } : {}),
+        };
+      }
+    );
+
+    const totalCents: number = items.reduce(
+      (sum: number, item: TransactionItem) =>
+        sum + item.quantity * item.unitPriceCents,
+      0
+    );
+
+    const updated: Delivery = {
+      ...original,
+      source: originalSource,
+      destination: newDestination,
+      items,
+      totalCents,
+    };
+
+    try {
+      setEditSubmitting(true);
+      await applyStockDeltas(deltas);
+      await updateDelivery(updated);
+      await refetchDeliveries();
+      await refetchStock();
+      resetEditState();
+    } catch {
+      await alert("Une erreur est survenue. Veuillez réessayer.");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  function hasMissingProducts(delivery: Delivery): boolean {
+    return delivery.items.some(
+      (item: TransactionItem) => !productsMap.has(item.productId)
+    );
+  }
+
   const totalDraftItems: number = summaryItems.reduce(
     (sum: number, item: SummaryItem) => sum + item.quantity,
     0
@@ -253,6 +545,8 @@ export default function DeliveriesPage() {
       </div>
     );
   }
+
+  const editSummaryItems: SummaryItem[] = editingId !== null ? buildEditSummaryItems() : [];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8">
@@ -294,6 +588,8 @@ export default function DeliveriesPage() {
             models={models}
             quantities={quantities}
             onQuantityChange={updateQuantity}
+            selectedTypeId={selectedTypeId}
+            onTypeChange={setSelectedTypeId}
           />
         </div>
 
@@ -315,6 +611,15 @@ export default function DeliveriesPage() {
                   [productId]: value,
                 }))
               }
+              onItemClick={(productId: string) => {
+                const product: Product | undefined = productsMap.get(productId);
+
+                if (product !== undefined) {
+                  setSelectedTypeId(product.elementTypeId);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }
+              }}
+              onItemRemove={(productId: string) => updateQuantity(productId, 0)}
             />
           </div>
         )}
@@ -345,6 +650,8 @@ export default function DeliveriesPage() {
           <div className="space-y-3">
             {sortedDeliveries.map((delivery: Delivery) => {
               const isExpanded: boolean = expandedIds.has(delivery.id);
+              const isEditing: boolean = editingId === delivery.id;
+              const missingProducts: boolean = hasMissingProducts(delivery);
               const itemCount: number = delivery.items.reduce(
                 (sum: number, item: TransactionItem) => sum + item.quantity,
                 0
@@ -380,11 +687,11 @@ export default function DeliveriesPage() {
                       {itemCount} article(s)
                     </span>
                     <span className="ml-auto text-foreground/60">
-                      {isExpanded ? "\u25be" : "\u25b8"}
+                      {isExpanded ? "▾" : "▸"}
                     </span>
                   </div>
 
-                  {isExpanded && (
+                  {isExpanded && !isEditing && (
                     <div className="border-t border-foreground/10 px-4 pb-4 pt-2">
                       <div className="overflow-x-auto rounded-lg border border-foreground/10">
                         <table className="w-full text-left text-sm">
@@ -433,17 +740,132 @@ export default function DeliveriesPage() {
                           </tbody>
                         </table>
                       </div>
+                      {missingProducts && (
+                        <p className="mt-3 text-sm text-foreground/65">
+                          Cette livraison contient des produits supprim&eacute;s. Modification indisponible.
+                        </p>
+                      )}
                       <div className="mt-3 flex items-center justify-between">
                         <span className="text-sm font-medium">
                           Total&nbsp;: {centsToDisplay(delivery.totalCents)}
                           &nbsp;&euro;
                         </span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleInvoice(delivery)}
+                            className="btn-secondary rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5"
+                          >
+                            Facture
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => enterEditMode(delivery)}
+                            disabled={missingProducts}
+                            className="btn-secondary rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40"
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDelivery(delivery)}
+                            className="btn-danger rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-red-500/80 transition-colors hover:bg-red-500/5 hover:text-red-500"
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isExpanded && isEditing && (
+                    <div className="border-t border-foreground/10 px-4 pb-4 pt-4">
+                      <div>
+                        <span className="mb-2 block text-sm text-foreground/70">
+                          Destination
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {STORAGE_LOCATIONS.filter(
+                            (location: StorageLocation) => location !== delivery.source
+                          ).map((location: StorageLocation) => (
+                            <button
+                              key={location}
+                              type="button"
+                              onClick={() => setEditDestination(location)}
+                              className={`rounded-md border px-3 py-1.5 text-sm transition-all ${
+                                editDestination === location
+                                  ? "btn-selected"
+                                  : "border-foreground/15 bg-white/80 text-foreground/60 hover:bg-white hover:text-foreground"
+                              }`}
+                            >
+                              {location}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <ProductGrid
+                          products={deliverableProducts}
+                          types={types}
+                          models={models}
+                          quantities={editQuantities}
+                          onQuantityChange={updateEditQuantity}
+                          selectedTypeId={selectedTypeId}
+                          onTypeChange={setSelectedTypeId}
+                        />
+                      </div>
+
+                      {editSummaryItems.length > 0 && (
+                        <div className="mt-4">
+                          <SelectionSummary
+                            items={editSummaryItems}
+                            priceOverrides={editPriceOverrides}
+                            onPriceOverrideChange={(productId: string, value: string) =>
+                              setEditPriceOverrides((previous: Record<string, string>) => ({
+                                ...previous,
+                                [productId]: value,
+                              }))
+                            }
+                            descriptions={editDescriptions}
+                            onDescriptionChange={(productId: string, value: string) =>
+                              setEditDescriptions((previous: Record<string, string>) => ({
+                                ...previous,
+                                [productId]: value,
+                              }))
+                            }
+                            onItemClick={(productId: string) => {
+                              const product: Product | undefined =
+                                productsMap.get(productId);
+
+                              if (product !== undefined) {
+                                setSelectedTypeId(product.elementTypeId);
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                              }
+                            }}
+                            onItemRemove={(productId: string) =>
+                              updateEditQuantity(productId, 0)
+                            }
+                          />
+                        </div>
+                      )}
+
+                      <div className="mt-4 flex items-center justify-end gap-2 border-t border-foreground/10 pt-4">
                         <button
                           type="button"
-                          onClick={() => handleInvoice(delivery)}
-                          className="btn-secondary rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5"
+                          onClick={resetEditState}
+                          disabled={editSubmitting}
+                          className="btn-secondary rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5 disabled:opacity-40"
                         >
-                          Facture
+                          Annuler
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEdit(delivery)}
+                          disabled={editSubmitting}
+                          className="btn-primary rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-80 disabled:opacity-40"
+                        >
+                          Enregistrer
                         </button>
                       </div>
                     </div>

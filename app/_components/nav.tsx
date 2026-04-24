@@ -10,11 +10,12 @@ interface Tab {
 }
 
 const tabs: Tab[] = [
-  { label: "\u00c9v\u00e9nement", href: "/events" },
-  { label: "Stockage", href: "/storage" },
+  { label: "Marché", href: "/events" },
   { label: "Livraisons", href: "/deliveries" },
   { label: "Paiements", href: "/payments" },
+  { label: "Commandes", href: "/commandes" },
   { label: "Produits", href: "/products" },
+  { label: "Stockage", href: "/storage" },
   { label: "Types", href: "/types" },
   { label: "Mod\u00e8les", href: "/models" },
 ];
